@@ -1,38 +1,63 @@
 #!/usr/bin/env groovy
 
-// A simple example of running parallel tasks on master and slaves
+// An example of a declarative syntax pipeline for running a maven build
 
-node ('master'){
-    stage ('Init work on master'){
-        echo "Initial work done on master"
-        sh 'echo Time is: $(date)'
+pipeline {
+    // Agent to start on (can be changed later in the pipeline
+    agent { label 'master' }
+
+    // Define tools to be used in this pipeline
+    tools {
+        // The M3 maven tool must be already configured in
+        // Manage Jenkins -> Global Tool Configuration -> Maven
+        maven 'M3'
     }
 
-    stage ('Parallel builds')
-    parallel (
-        "Thread 1" : {
-            node ('master'){
-                echo 'Running on master'
-                sh 'echo ---------------; echo Hostname is $(hostname); echo Time is $(date); sleep 5; touch file.master'
-            }
-        },
-        "Thread 2" : {
-            node ('agent1'){
-                echo 'Running on agent1'
-                sh 'echo ---------------; echo Hostname is $(hostname); echo Time is $(date); sleep 5; touch file.agent1'
-            }
-        },
-        "Thread 3" : {
-            node ('agent2'){
-                echo 'Running on agent2'
-                sh 'echo ---------------; echo Hostname is $(hostname); echo Time is $(date); sleep 5; touch file.agent2'
+    // Global options for configuration applied to the whole job
+    options {
+        // Keep only 10 last build
+        buildDiscarder(logRotator(numToKeepStr:'10'))
+
+        // Timeout after 30 minutes
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    // Main build steps
+    stages {
+        stage('Clone sources') {
+            steps {
+                git 'https://github.com/JFrogDev/project-examples'
             }
         }
-    )
-
-    stage ('Closeup on master'){
-        echo "Finish work done on master"
-        sh 'echo Time is: $(date)'
+        stage('Maven build') {
+            steps {
+                sh 'cd maven-example; mvn -Dmaven.test.failure.ignore clean package'
+            }
+        }
+        stage('Test report') {
+            steps {
+                junit 'maven-example/**/target/surefire-reports/TEST-*.xml'
+            }
+        }
+        stage('Archive') {
+            steps {
+                archive 'maven-example/**/target/*.war'
+            }
+        }
     }
 
+    // Post build actions
+    post {
+        always {
+            echo "Always cleanup..."
+        }
+
+        success {
+            echo "Good build. Send email..."
+        }
+
+        failure {
+            echo "Failed build. Send email..."
+        }
+    }
 }
